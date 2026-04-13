@@ -3,6 +3,7 @@ import Debug from 'debug'
 import dgram from 'dgram'
 import EventEmitter from 'events'
 import http from 'http'
+import https from 'https'
 import peerid from 'bittorrent-peerid'
 import series from 'run-series'
 import string2compact from 'string2compact'
@@ -17,6 +18,192 @@ import parseWebSocketRequest from './lib/server/parse-websocket.js'
 
 const debug = Debug('bittorrent-tracker:server')
 const hasOwnProperty = Object.prototype.hasOwnProperty
+
+function escapeHtml (text) {
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+function buildTorrentStats (server, infoHashes) {
+  const progressMin = server._seedProgressMin || 35
+  const seedMap = server._seedStatusMap || {}
+  const out = []
+  for (let i = 0; i < infoHashes.length; i++) {
+    const infoHash = infoHashes[i]
+    const peers = server.torrents[infoHash].peers
+    const keys = peers.keys
+    let trackerSeeders = 0
+    let trackerLeechers = 0
+    let wsPeers = 0
+    let httpUdpPeers = 0
+    for (let j = 0; j < keys.length; j++) {
+      const peerId = keys[j]
+      const peer = peers.peek(peerId)
+      if (!peer) continue
+      if (peer.complete) trackerSeeders++
+      else trackerLeechers++
+      if (peer.type === 'ws') wsPeers++
+      else httpUdpPeers++
+    }
+    const cloud = seedMap[infoHash]
+    const cloudRecords = []
+    let cloudEligible = 0
+    if (cloud) {
+      const pids = Object.keys(cloud)
+      for (let k = 0; k < pids.length; k++) {
+        const peerId = pids[k]
+        const st = cloud[peerId]
+        const eligible = !st.paused && st.progress > progressMin
+        if (eligible) cloudEligible++
+        cloudRecords.push({
+          peerId,
+          paused: !!st.paused,
+          progress: st.progress,
+          eligibleForWebRtcFilter: eligible
+        })
+      }
+      cloudRecords.sort((a, b) => b.progress - a.progress)
+    }
+    out.push({
+      infoHash,
+      peersInSwarm: keys.length,
+      trackerSeeders,
+      trackerLeechers,
+      wsPeers,
+      httpUdpPeers,
+      cloudRecordsTotal: cloudRecords.length,
+      cloudEligibleForFilter: cloudEligible,
+      cloudRecords
+    })
+  }
+  return out
+}
+
+function renderStatsHtml (stats, torrentDetails, server) {
+  const sf = stats.seedFilter
+  const ageMs = sf.snapshot.ageMs
+  const ageStr = ageMs < 0 ? 'never' : `${Math.round(ageMs / 1000)}s ago`
+  const poll = server._seedPollIntervalMs
+  const urlConfigured = !!server._seedersUrl
+
+  const configRows = `
+    <tr><th>Seed filter enabled</th><td>${sf.enabled ? 'yes' : 'no'}</td></tr>
+    <tr><th>Minimum progress (WebRTC preferential list)</th><td>${escapeHtml(String(sf.progressMin))}% — peers with progress ≤ this are deprioritized for WebSocket announces when cloud data is present</td></tr>
+    <tr><th>Filter scope</th><td>WebSocket / WebRTC announces only (HTTP and UDP peer lists are unchanged)</td></tr>
+    <tr><th>Cloud seeders URL</th><td>${urlConfigured ? 'configured' : 'not configured'}</td></tr>
+    <tr><th>Snapshot poll interval</th><td>${poll != null ? `${poll} ms` : '—'}</td></tr>
+    <tr><th>Cloud snapshot age</th><td>${escapeHtml(ageStr)}</td></tr>
+    <tr><th>Info hashes in cloud snapshot</th><td>${sf.snapshot.infoHashCount}</td></tr>
+  `
+
+  const maxCloudRows = 80
+  let tables = ''
+  for (let i = 0; i < torrentDetails.length; i++) {
+    const t = torrentDetails[i]
+    const shortHash = t.infoHash.length > 16 ? `${t.infoHash.slice(0, 16)}…` : t.infoHash
+    const recs = t.cloudRecords
+    let sub
+    if (recs.length === 0) {
+      sub = '<p class="note">No cloud seed records for this info hash (snapshot may be empty or key missing).</p>'
+    } else {
+      const slice = recs.length > maxCloudRows ? recs.slice(0, maxCloudRows) : recs
+      sub = '<table class="sub"><thead><tr><th>Peer id (hex)</th><th>Progress</th><th>Paused</th><th>Eligible for WebRTC filter</th></tr></thead><tbody>'
+      for (let j = 0; j < slice.length; j++) {
+        const r = slice[j]
+        const pid = r.peerId.length > 24 ? `${r.peerId.slice(0, 24)}…` : r.peerId
+        sub += `<tr><td class="mono" title="${escapeHtml(r.peerId)}">${escapeHtml(pid)}</td><td>${r.progress}%</td><td>${r.paused ? 'yes' : 'no'}</td><td>${r.eligibleForWebRtcFilter ? 'yes' : 'no'}</td></tr>`
+      }
+      sub += '</tbody></table>'
+      if (recs.length > maxCloudRows) {
+        sub += `<p class="note">Showing ${maxCloudRows} of ${recs.length} cloud records for this info hash.</p>`
+      }
+    }
+
+    tables += `
+      <section class="card">
+        <h3 class="mono" title="${escapeHtml(t.infoHash)}">${escapeHtml(shortHash)}</h3>
+        <table class="summary">
+          <tr><th>Peers in swarm</th><td>${t.peersInSwarm}</td></tr>
+          <tr><th>Tracker seeders (complete)</th><td>${t.trackerSeeders}</td></tr>
+          <tr><th>Tracker leechers (incomplete)</th><td>${t.trackerLeechers}</td></tr>
+          <tr><th>WebSocket peers</th><td>${t.wsPeers}</td></tr>
+          <tr><th>HTTP / UDP peers</th><td>${t.httpUdpPeers}</td></tr>
+          <tr><th>Cloud records</th><td>${t.cloudRecordsTotal}</td></tr>
+          <tr><th>Cloud eligible (progress &gt; ${escapeHtml(String(sf.progressMin))}% and not paused)</th><td>${t.cloudEligibleForFilter}</td></tr>
+        </table>
+        <h4>Cloud seeders (from snapshot)</h4>
+        ${sub}
+      </section>
+    `
+  }
+
+  if (torrentDetails.length === 0) {
+    tables = '<p class="note">No swarms registered yet.</p>'
+  }
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BitTorrent tracker — stats</title>
+  <style>
+    :root { font-family: system-ui, sans-serif; line-height: 1.45; color: #1a1a1a; background: #f4f4f5; }
+    body { max-width: 960px; margin: 0 auto; padding: 1.25rem 1rem 2.5rem; }
+    h1 { font-size: 1.35rem; margin: 0 0 0.5rem; }
+    h2 { font-size: 1.1rem; margin: 1.25rem 0 0.5rem; color: #374151; }
+    h3 { font-size: 1rem; margin: 0 0 0.75rem; }
+    h4 { font-size: 0.9rem; margin: 1rem 0 0.5rem; color: #4b5563; }
+    .card { background: #fff; border-radius: 8px; padding: 1rem 1.1rem; margin: 1rem 0; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+    table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    th, td { text-align: left; padding: 0.35rem 0.5rem; border-bottom: 1px solid #e5e7eb; }
+    th { font-weight: 600; color: #374151; width: 14rem; vertical-align: top; }
+    table.summary th { width: 18rem; }
+    table.sub th { width: auto; }
+    .mono { font-family: ui-monospace, monospace; font-size: 0.82rem; word-break: break-all; }
+    .note { color: #6b7280; font-size: 0.88rem; margin: 0.5rem 0 0; }
+    ul { margin: 0.25rem 0 0; padding-left: 1.25rem; }
+  </style>
+</head>
+<body>
+  <h1>${stats.torrents} torrents (${stats.activeTorrents} active)</h1>
+  <h2>Connected Peers: ${stats.peersAll}</h2>
+  <h3>Peers Seeding Only: ${stats.peersSeederOnly}</h3>
+  <h3>Peers Leeching Only: ${stats.peersLeecherOnly}</h3>
+  <h3>Peers Seeding &amp; Leeching: ${stats.peersSeederAndLeecher}</h3>
+  <h3>IPv4 Peers: ${stats.peersIPv4}</h3>
+  <h3>IPv6 Peers: ${stats.peersIPv6}</h3>
+  <h2>Clients</h2>
+  ${printClientsHtml(stats.clients)}
+  <h2>Seed filter configuration</h2>
+  <div class="card">
+    <table>${configRows}</table>
+  </div>
+  <h2>Swarms and cloud seeders (per info hash)</h2>
+  ${tables}
+  <p class="note"><a href="/stats.json">JSON API</a> — same data as machine-readable JSON.</p>
+</body>
+</html>`
+}
+
+function printClientsHtml (clients) {
+  let html = '<ul>\n'
+  for (const name in clients) {
+    if (hasOwnProperty.call(clients, name)) {
+      const client = clients[name]
+      for (const version in client) {
+        if (hasOwnProperty.call(client, version)) {
+          html += `<li><strong>${escapeHtml(name)}</strong> ${escapeHtml(version)} : ${client[version]}</li>\n`
+        }
+      }
+    }
+  }
+  html += '</ul>'
+  return html
+}
 
 /**
  * BitTorrent tracker server.
@@ -139,6 +326,29 @@ class Server extends EventEmitter {
       })
     }
 
+    // Seed status map: { [infoHash]: { [peerId]: { paused, progress } } }
+    this._seedStatusMap = {}
+    this._seedStatusUpdatedAt = 0
+    this._seedersUrl = ''
+    this._seedPollIntervalMs = null
+
+    const seedFilterEnabled = opts.seedFilterEnabled !== undefined
+      ? opts.seedFilterEnabled
+      : process.env.SEED_FILTER_ENABLED === 'true'
+    this._seedFilterEnabled = seedFilterEnabled
+    this._seedProgressMin = Number(process.env.SEED_PROGRESS_MIN) || 35
+
+    const seedersUrl = opts.seedersUrl || process.env.SEEDERS_URL || ''
+    if (seedersUrl && seedFilterEnabled) {
+      this._seedersUrl = seedersUrl
+      const pollInterval = opts.seedPollInterval || 2000
+      this._seedPollIntervalMs = pollInterval
+      this._seedPollTimer = setInterval(() => {
+        this._pollSeeders()
+      }, pollInterval)
+      this._pollSeeders()
+    }
+
     if (opts.stats !== false) {
       if (!this.http) {
         this.http = http.createServer()
@@ -188,22 +398,6 @@ class Server extends EventEmitter {
           return clients
         }
 
-        function printClients (clients) {
-          let html = '<ul>\n'
-          for (const name in clients) {
-            if (hasOwnProperty.call(clients, name)) {
-              const client = clients[name]
-              for (const version in client) {
-                if (hasOwnProperty.call(client, version)) {
-                  html += `<li><strong>${name}</strong> ${version} : ${client[version]}</li>\n`
-                }
-              }
-            }
-          }
-          html += '</ul>'
-          return html
-        }
-
         if (req.method === 'GET' && (req.url === '/stats' || req.url === '/stats.json')) {
           infoHashes.forEach(infoHash => {
             const peers = this.torrents[infoHash].peers
@@ -247,6 +441,13 @@ class Server extends EventEmitter {
           const isIPv4 = peer => peer.ipv4
           const isIPv6 = peer => peer.ipv6
 
+          const seedStatusInfoHashes = Object.keys(this._seedStatusMap || {}).length
+          const seedStatusAge = this._seedStatusUpdatedAt
+            ? Date.now() - this._seedStatusUpdatedAt
+            : -1
+
+          const torrentDetails = buildTorrentStats(this, infoHashes)
+
           const stats = {
             torrents: infoHashes.length,
             activeTorrents,
@@ -256,25 +457,27 @@ class Server extends EventEmitter {
             peersSeederAndLeecher: countPeers(isSeederAndLeecher),
             peersIPv4: countPeers(isIPv4),
             peersIPv6: countPeers(isIPv6),
-            clients: groupByClient()
+            clients: groupByClient(),
+            torrentDetails,
+            seedFilter: {
+              enabled: !!this._seedFilterEnabled,
+              progressMin: this._seedProgressMin,
+              appliesToWebRtcAnnouncesOnly: true,
+              infoHashes: seedStatusInfoHashes,
+              snapshotAgeMs: seedStatusAge,
+              snapshot: {
+                infoHashCount: seedStatusInfoHashes,
+                ageMs: seedStatusAge
+              }
+            }
           }
 
           if (req.url === '/stats.json' || req.headers.accept === 'application/json') {
             res.setHeader('Content-Type', 'application/json')
             res.end(JSON.stringify(stats))
           } else if (req.url === '/stats') {
-            res.setHeader('Content-Type', 'text/html')
-            res.end(`
-              <h1>${stats.torrents} torrents (${stats.activeTorrents} active)</h1>
-              <h2>Connected Peers: ${stats.peersAll}</h2>
-              <h3>Peers Seeding Only: ${stats.peersSeederOnly}</h3>
-              <h3>Peers Leeching Only: ${stats.peersLeecherOnly}</h3>
-              <h3>Peers Seeding & Leeching: ${stats.peersSeederAndLeecher}</h3>
-              <h3>IPv4 Peers: ${stats.peersIPv4}</h3>
-              <h3>IPv6 Peers: ${stats.peersIPv6}</h3>
-              <h3>Clients:</h3>
-              ${printClients(stats.clients)}
-            `.replace(/^\s+/gm, '')) // trim left
+            res.setHeader('Content-Type', 'text/html; charset=utf-8')
+            res.end(renderStatsHtml(stats, torrentDetails, this))
           }
         }
       })
@@ -294,6 +497,43 @@ class Server extends EventEmitter {
 
   _onError (err) {
     this.emit('error', err)
+  }
+
+  _pollSeeders () {
+    if (!this._seedersUrl) return
+    const url = this._seedersUrl
+    const getter = url.startsWith('https') ? https : http
+    const req = getter.get(url, (res) => {
+      let data = ''
+      res.on('data', chunk => { data += chunk })
+      res.on('end', () => {
+        try {
+          const records = JSON.parse(data)
+          const map = {}
+          if (Array.isArray(records)) {
+            for (const r of records) {
+              if (!r.info_hash || !r.peer_id) continue
+              if (!map[r.info_hash]) map[r.info_hash] = {}
+              map[r.info_hash][r.peer_id] = {
+                paused: !!r.paused,
+                progress: Number(r.progress) || 0
+              }
+            }
+          }
+          this._seedStatusMap = map
+          this._seedStatusUpdatedAt = Date.now()
+          debug('seeders poll: %d info_hashes', Object.keys(map).length)
+        } catch (err) {
+          debug('seeders poll parse error: %s', err.message)
+        }
+      })
+    })
+    req.on('error', (err) => {
+      debug('seeders poll request error: %s', err.message)
+    })
+    req.setTimeout(5000, () => {
+      req.destroy()
+    })
   }
 
   listen (...args) /* port, hostname, onlistening */{
@@ -327,6 +567,11 @@ class Server extends EventEmitter {
 
     this.listening = false
     this.destroyed = true
+
+    if (this._seedPollTimer) {
+      clearInterval(this._seedPollTimer)
+      this._seedPollTimer = null
+    }
 
     if (this.udp4) {
       try {

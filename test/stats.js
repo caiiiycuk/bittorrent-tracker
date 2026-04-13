@@ -8,24 +8,22 @@ const peerId = Buffer.from('-WW0091-4ea5886ce160')
 const unknownPeerId = Buffer.from('01234567890123456789')
 
 function parseHtml (html) {
-  const extractValue = /[^v^h](\d+)/
-  const array = html.replace('torrents', '\n').split('\n').filter(line => line && line.trim().length > 0).map(line => {
-    const a = extractValue.exec(line)
-    if (a) {
-      return parseInt(a[1])
-    }
-    return null
-  })
-  let i = 0
+  const h1 = html.match(/<h1>(\d+) torrents \((\d+) active\)<\/h1>/)
+  const peersAll = html.match(/Connected Peers: (\d+)/)
+  const peersSeederOnly = html.match(/Peers Seeding Only: (\d+)/)
+  const peersLeecherOnly = html.match(/Peers Leeching Only: (\d+)/)
+  const peersSeederAndLeecher = html.match(/Peers Seeding &amp; Leeching: (\d+)/)
+  const peersIPv4 = html.match(/IPv4 Peers: (\d+)/)
+  const peersIPv6 = html.match(/IPv6 Peers: (\d+)/)
   return {
-    torrents: array[i++],
-    activeTorrents: array[i++],
-    peersAll: array[i++],
-    peersSeederOnly: array[i++],
-    peersLeecherOnly: array[i++],
-    peersSeederAndLeecher: array[i++],
-    peersIPv4: array[i++],
-    peersIPv6: array[i]
+    torrents: h1 ? parseInt(h1[1], 10) : null,
+    activeTorrents: h1 ? parseInt(h1[2], 10) : null,
+    peersAll: peersAll ? parseInt(peersAll[1], 10) : null,
+    peersSeederOnly: peersSeederOnly ? parseInt(peersSeederOnly[1], 10) : null,
+    peersLeecherOnly: peersLeecherOnly ? parseInt(peersLeecherOnly[1], 10) : null,
+    peersSeederAndLeecher: peersSeederAndLeecher ? parseInt(peersSeederAndLeecher[1], 10) : null,
+    peersIPv4: peersIPv4 ? parseInt(peersIPv4[1], 10) : null,
+    peersIPv6: peersIPv6 ? parseInt(peersIPv6[1], 10) : null
   }
 }
 
