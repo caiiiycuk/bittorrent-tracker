@@ -37,6 +37,7 @@ function buildTorrentStats (server, infoHashes) {
     const infoHash = infoHashes[i]
     const peers = server.torrents[infoHash].peers
     const keys = peers.keys
+    const peerIdsInSwarm = new Set()
     let trackerSeeders = 0
     let trackerLeechers = 0
     let wsPeers = 0
@@ -45,6 +46,7 @@ function buildTorrentStats (server, infoHashes) {
       const peerId = keys[j]
       const peer = peers.peek(peerId)
       if (!peer) continue
+      if (peer.peerId) peerIdsInSwarm.add(peer.peerId)
       if (peer.complete) trackerSeeders++
       else trackerLeechers++
       if (peer.type === 'ws') wsPeers++
@@ -65,6 +67,7 @@ function buildTorrentStats (server, infoHashes) {
         cloudEligible++
         cloudRecords.push({
           peerId,
+          registeredOnTracker: peerIdsInSwarm.has(peerId),
           paused: !!st.paused,
           resumable: !!st.resumable,
           progress: st.progress,
@@ -117,11 +120,11 @@ function renderStatsHtml (stats, torrentDetails, server) {
       sub = '<p class="note">No cloud seed records for this info hash (snapshot may be empty or key missing).</p>'
     } else {
       const slice = recs.length > maxCloudRows ? recs.slice(0, maxCloudRows) : recs
-      sub = '<table class="sub"><thead><tr><th>Peer id (hex)</th><th>Progress</th><th>Paused</th><th>Resumable</th></tr></thead><tbody>'
+      sub = '<table class="sub"><thead><tr><th>Peer id (hex)</th><th>Registered on tracker</th><th>Progress</th><th>Paused</th><th>Resumable</th></tr></thead><tbody>'
       for (let j = 0; j < slice.length; j++) {
         const r = slice[j]
         const pid = r.peerId
-        sub += `<tr><td class="mono" title="${escapeHtml(r.peerId)}">${escapeHtml(pid)}</td><td>${r.progress}%</td><td>${r.paused ? 'yes' : 'no'}</td><td>${r.resumable ? 'yes' : 'no'}</td></tr>`
+        sub += `<tr><td class="mono" title="${escapeHtml(r.peerId)}">${escapeHtml(pid)}</td><td>${r.registeredOnTracker ? 'yes' : 'no'}</td><td>${r.progress}%</td><td>${r.paused ? 'yes' : 'no'}</td><td>${r.resumable ? 'yes' : 'no'}</td></tr>`
       }
       sub += '</tbody></table>'
       if (recs.length > maxCloudRows) {
