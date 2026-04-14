@@ -79,7 +79,7 @@ test('filter: eligible peers returned first', () => {
   statusMap[infoHash] = {
     peer0: { paused: false, progress: 80 },
     peer1: { paused: false, progress: 90 },
-    peer2: { paused: true, progress: 80 },
+    peer2: { paused: true, resumable: true, progress: 80 },
     peer3: { paused: false, progress: 10 },
     peer4: { paused: false, progress: 100 }
   }
@@ -90,7 +90,7 @@ test('filter: eligible peers returned first', () => {
   const peers = swarm._getPeers(3, 'requestor', true)
   assert(peers.length === 3, `expected 3 peers, got ${peers.length}`)
 
-  const eligiblePeerIds = new Set(['peer0', 'peer1', 'peer4'])
+  const eligiblePeerIds = new Set(['peer0', 'peer1', 'peer2', 'peer4'])
   const returnedEligible = peers.filter(p => eligiblePeerIds.has(p.peerId)).length
   assert(returnedEligible === 3, `expected 3 eligible, got ${returnedEligible}`)
 })
@@ -99,7 +99,7 @@ test('filter: fallback used when not enough eligible', () => {
   const statusMap = {}
   statusMap[infoHash] = {
     peer0: { paused: false, progress: 80 },
-    peer1: { paused: true, progress: 80 },
+    peer1: { paused: true, resumable: false, progress: 80 },
     peer2: { paused: true, progress: 80 }
   }
   const server = createMockServer(true, statusMap)
@@ -109,6 +109,24 @@ test('filter: fallback used when not enough eligible', () => {
   const peers = swarm._getPeers(3, 'requestor', true)
   assert(peers.length === 3, `expected 3 peers, got ${peers.length}`)
   assert(peers[0].peerId === 'peer0', 'first peer should be eligible')
+})
+
+test('filter: paused but resumable peer is eligible', () => {
+  const statusMap = {}
+  statusMap[infoHash] = {
+    resumablePeer: { paused: true, resumable: true, progress: 95 },
+    pausedPeer: { paused: true, resumable: false, progress: 95 }
+  }
+  const server = createMockServer(true, statusMap)
+  const swarm = new Swarm(infoHash, server)
+  addPeer(swarm, 'resumablePeer', 'ws')
+  addPeer(swarm, 'pausedPeer', 'ws')
+
+  for (let i = 0; i < 20; i++) {
+    const peers = swarm._getPeers(1, 'requestor', true)
+    assert(peers.length === 1, 'expected one peer')
+    assert(peers[0].peerId === 'resumablePeer', 'resumable peer should be preferred')
+  }
 })
 
 test('filter: unknown peers go to fallback', () => {

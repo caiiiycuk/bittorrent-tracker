@@ -34,7 +34,7 @@ Confirm the binary path you will use in `ExecStart` (example with nvm):
 
 ## 2. systemd service
 
-Below is the unit you defined, kept as a single file (e.g. `/etc/systemd/system/bittorrent-tracker.service`). The `**Environment=**` lines for **seed filtering** turn on preferential WebSocket peer selection using your cloud snapshot (**paused** + **download progress**). Set `**SEED_FILTER_ENABLED=true`** and a valid `**SEEDERS_URL**` together; the tracker polls that URL and applies the filter only to **WebRTC/WebSocket** announces (HTTP/UDP lists are unchanged).
+Below is the unit you defined, kept as a single file (e.g. `/etc/systemd/system/bittorrent-tracker.service`). The `**Environment=**` lines for **seed filtering** turn on preferential WebSocket peer selection using your cloud snapshot (**paused** + **resumable** + **download progress**). Set `**SEED_FILTER_ENABLED=true`** and a valid `**SEEDERS_URL**` together; the tracker polls that URL and applies the filter only to **WebRTC/WebSocket** announces (HTTP/UDP lists are unchanged).
 
 ```ini
 [Unit]
@@ -65,8 +65,8 @@ WantedBy=multi-user.target
 | Variable                  | Required           | Meaning                                                                                                                                                                                                         |
 | ------------------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `**SEED_FILTER_ENABLED**` | Yes, to enable     | Must be the literal string `**true**`. Turns on filtering for WebSocket announces when a snapshot is available.                                                                                                 |
-| `**SEEDERS_URL**`         | Yes, for live data | HTTPS or HTTP URL the tracker **GET**s periodically (JSON array of records with `info_hash`, `peer_id`, `paused`, `progress`). Without this URL, the tracker does **not** poll and filtering has no cloud data. |
-| `**SEED_PROGRESS_MIN`**   | No                 | Minimum **progress percent** for a peer to be preferred (default **35** if unset). Peers at or below this value (or paused) are deprioritized for WebSocket peer lists when the snapshot says so.               |
+| `**SEEDERS_URL**`         | Yes, for live data | HTTPS or HTTP URL the tracker **GET**s periodically (JSON array of records with `info_hash`, `peer_id`, `paused`, `resumable`, `progress`). Without this URL, the tracker does **not** poll and filtering has no cloud data. |
+| `**SEED_PROGRESS_MIN`**   | No                 | Minimum **progress percent** for a peer to be preferred (default **35** if unset). Peers at or below this value (or `paused=true` with `resumable=false`) are deprioritized for WebSocket peer lists when the snapshot says so. |
 
 
 To **disable** seed filtering, remove the three variables or set `Environment=SEED_FILTER_ENABLED=false`, and drop or comment `SEEDERS_URL` / `SEED_PROGRESS_MIN` as needed. Reload after edits: `sudo systemctl daemon-reload && sudo systemctl restart bittorrent-tracker.service`.

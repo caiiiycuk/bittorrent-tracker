@@ -30,6 +30,7 @@ function escapeHtml (text) {
 function buildTorrentStats (server, infoHashes) {
   const progressMin = server._seedProgressMin || 35
   const seedMap = server._seedStatusMap || {}
+  const isCloudPeerEligible = st => st && st.progress > progressMin && (!st.paused || st.resumable)
   const out = []
   for (let i = 0; i < infoHashes.length; i++) {
     const infoHash = infoHashes[i]
@@ -50,17 +51,21 @@ function buildTorrentStats (server, infoHashes) {
     }
     const cloud = seedMap[infoHash]
     const cloudRecords = []
+    let cloudRecordsTotal = 0
     let cloudEligible = 0
     if (cloud) {
       const pids = Object.keys(cloud)
       for (let k = 0; k < pids.length; k++) {
         const peerId = pids[k]
         const st = cloud[peerId]
-        const eligible = !st.paused && st.progress > progressMin
-        if (eligible) cloudEligible++
+        cloudRecordsTotal++
+        const eligible = isCloudPeerEligible(st)
+        if (!eligible) continue
+        cloudEligible++
         cloudRecords.push({
           peerId,
           paused: !!st.paused,
+          resumable: !!st.resumable,
           progress: st.progress,
           eligibleForWebRtcFilter: eligible
         })
@@ -74,7 +79,7 @@ function buildTorrentStats (server, infoHashes) {
       trackerLeechers,
       wsPeers,
       httpUdpPeers,
-      cloudRecordsTotal: cloudRecords.length,
+      cloudRecordsTotal,
       cloudEligibleForFilter: cloudEligible,
       cloudRecords
     })
@@ -110,11 +115,11 @@ function renderStatsHtml (stats, torrentDetails, server) {
       sub = '<p class="note">No cloud seed records for this info hash (snapshot may be empty or key missing).</p>'
     } else {
       const slice = recs.length > maxCloudRows ? recs.slice(0, maxCloudRows) : recs
-      sub = '<table class="sub"><thead><tr><th>Peer id (hex)</th><th>Progress</th><th>Paused</th><th>Eligible for WebRTC filter</th></tr></thead><tbody>'
+      sub = '<table class="sub"><thead><tr><th>Peer id (hex)</th><th>Progress</th><th>Paused</th><th>Resumable</th></tr></thead><tbody>'
       for (let j = 0; j < slice.length; j++) {
         const r = slice[j]
         const pid = r.peerId.length > 24 ? `${r.peerId.slice(0, 24)}…` : r.peerId
-        sub += `<tr><td class="mono" title="${escapeHtml(r.peerId)}">${escapeHtml(pid)}</td><td>${r.progress}%</td><td>${r.paused ? 'yes' : 'no'}</td><td>${r.eligibleForWebRtcFilter ? 'yes' : 'no'}</td></tr>`
+        sub += `<tr><td class="mono" title="${escapeHtml(r.peerId)}">${escapeHtml(pid)}</td><td>${r.progress}%</td><td>${r.paused ? 'yes' : 'no'}</td><td>${r.resumable ? 'yes' : 'no'}</td></tr>`
       }
       sub += '</tbody></table>'
       if (recs.length > maxCloudRows) {
@@ -131,8 +136,8 @@ function renderStatsHtml (stats, torrentDetails, server) {
           <tr><th>Tracker leechers (incomplete)</th><td>${t.trackerLeechers}</td></tr>
           <tr><th>WebSocket peers</th><td>${t.wsPeers}</td></tr>
           <tr><th>HTTP / UDP peers</th><td>${t.httpUdpPeers}</td></tr>
-          <tr><th>Cloud records</th><td>${t.cloudRecordsTotal}</td></tr>
-          <tr><th>Cloud eligible (progress &gt; ${escapeHtml(String(sf.progressMin))}% and not paused)</th><td>${t.cloudEligibleForFilter}</td></tr>
+          <tr><th>Cloud records (raw snapshot)</th><td>${t.cloudRecordsTotal}</td></tr>
+          <tr><th>Cloud eligible (progress &gt; ${escapeHtml(String(sf.progressMin))}% and (not paused or resumable))</th><td>${t.cloudEligibleForFilter}</td></tr>
         </table>
         <h4>Cloud seeders (from snapshot)</h4>
         ${sub}
@@ -326,7 +331,7 @@ class Server extends EventEmitter {
       })
     }
 
-    // Seed status map: { [infoHash]: { [peerId]: { paused, progress } } }
+    // Seed status map: { [infoHash]: { [peerId]: { paused, progress, resumable } } }
     this._seedStatusMap = {}
     this._seedStatusUpdatedAt = 0
     this._seedersUrl = ''
@@ -516,6 +521,7 @@ class Server extends EventEmitter {
               if (!map[r.info_hash]) map[r.info_hash] = {}
               map[r.info_hash][r.peer_id] = {
                 paused: !!r.paused,
+                resumable: !!r.resumable,
                 progress: Number(r.progress) || 0
               }
             }
