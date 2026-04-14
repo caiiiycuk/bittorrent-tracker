@@ -95,7 +95,7 @@ test('filter: eligible peers returned first', () => {
   assert(returnedEligible === 3, `expected 3 eligible, got ${returnedEligible}`)
 })
 
-test('filter: fallback used when not enough eligible', () => {
+test('filter: WebRTC does not use fallback when not enough eligible', () => {
   const statusMap = {}
   statusMap[infoHash] = {
     peer0: { paused: false, progress: 80 },
@@ -107,8 +107,8 @@ test('filter: fallback used when not enough eligible', () => {
   for (let i = 0; i < 3; i++) addPeer(swarm, `peer${i}`, 'ws')
 
   const peers = swarm._getPeers(3, 'requestor', true)
-  assert(peers.length === 3, `expected 3 peers, got ${peers.length}`)
-  assert(peers[0].peerId === 'peer0', 'first peer should be eligible')
+  assert(peers.length === 1, `expected 1 peer, got ${peers.length}`)
+  assert(peers[0].peerId === 'peer0', 'returned peer should be eligible')
 })
 
 test('filter: paused but resumable peer is eligible', () => {
@@ -129,7 +129,7 @@ test('filter: paused but resumable peer is eligible', () => {
   }
 })
 
-test('filter: unknown peers go to fallback', () => {
+test('filter: unknown peers are excluded for WebRTC when cloud data exists', () => {
   const statusMap = {}
   statusMap[infoHash] = {
     peer0: { paused: false, progress: 80 }
@@ -140,8 +140,8 @@ test('filter: unknown peers go to fallback', () => {
   addPeer(swarm, 'unknown_peer', 'ws')
 
   const peers = swarm._getPeers(2, 'requestor', true)
-  assert(peers.length === 2, `expected 2 peers, got ${peers.length}`)
-  assert(peers[0].peerId === 'peer0', 'first peer should be eligible known peer')
+  assert(peers.length === 1, `expected 1 peer, got ${peers.length}`)
+  assert(peers[0].peerId === 'peer0', 'only eligible known peer should be returned')
 })
 
 test('filter: WebRTC always prefers eligible when numwant=1', () => {

@@ -110,7 +110,6 @@ function renderStatsHtml (stats, torrentDetails, server) {
   let tables = ''
   for (let i = 0; i < torrentDetails.length; i++) {
     const t = torrentDetails[i]
-    const shortHash = t.infoHash.length > 16 ? `${t.infoHash.slice(0, 16)}…` : t.infoHash
     const torrentIdSuffix = t.torrentId ? ` (${escapeHtml(t.torrentId)})` : ''
     const recs = t.cloudRecords
     let sub
@@ -121,7 +120,7 @@ function renderStatsHtml (stats, torrentDetails, server) {
       sub = '<table class="sub"><thead><tr><th>Peer id (hex)</th><th>Progress</th><th>Paused</th><th>Resumable</th></tr></thead><tbody>'
       for (let j = 0; j < slice.length; j++) {
         const r = slice[j]
-        const pid = r.peerId.length > 24 ? `${r.peerId.slice(0, 24)}…` : r.peerId
+        const pid = r.peerId
         sub += `<tr><td class="mono" title="${escapeHtml(r.peerId)}">${escapeHtml(pid)}</td><td>${r.progress}%</td><td>${r.paused ? 'yes' : 'no'}</td><td>${r.resumable ? 'yes' : 'no'}</td></tr>`
       }
       sub += '</tbody></table>'
@@ -132,7 +131,7 @@ function renderStatsHtml (stats, torrentDetails, server) {
 
     tables += `
       <section class="card">
-        <h3 class="mono" title="${escapeHtml(t.infoHash)}">${escapeHtml(shortHash)}${torrentIdSuffix}</h3>
+        <h3 class="mono" title="${escapeHtml(t.infoHash)}">${escapeHtml(t.infoHash)}${torrentIdSuffix}</h3>
         <table class="summary">
           <tr><th>Peers in swarm</th><td>${t.peersInSwarm}</td></tr>
           <tr><th>Tracker seeders (complete)</th><td>${t.trackerSeeders}</td></tr>
