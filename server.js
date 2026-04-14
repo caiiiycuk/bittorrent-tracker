@@ -30,6 +30,7 @@ function escapeHtml (text) {
 function buildTorrentStats (server, infoHashes) {
   const progressMin = server._seedProgressMin || 35
   const seedMap = server._seedStatusMap || {}
+  const seedTorrentIdMap = server._seedTorrentIdMap || {}
   const isCloudPeerEligible = st => st && st.progress > progressMin && (!st.paused || st.resumable)
   const out = []
   for (let i = 0; i < infoHashes.length; i++) {
@@ -74,6 +75,7 @@ function buildTorrentStats (server, infoHashes) {
     }
     out.push({
       infoHash,
+      torrentId: seedTorrentIdMap[infoHash] || '',
       peersInSwarm: keys.length,
       trackerSeeders,
       trackerLeechers,
@@ -109,6 +111,7 @@ function renderStatsHtml (stats, torrentDetails, server) {
   for (let i = 0; i < torrentDetails.length; i++) {
     const t = torrentDetails[i]
     const shortHash = t.infoHash.length > 16 ? `${t.infoHash.slice(0, 16)}…` : t.infoHash
+    const torrentIdSuffix = t.torrentId ? ` (${escapeHtml(t.torrentId)})` : ''
     const recs = t.cloudRecords
     let sub
     if (recs.length === 0) {
@@ -129,7 +132,7 @@ function renderStatsHtml (stats, torrentDetails, server) {
 
     tables += `
       <section class="card">
-        <h3 class="mono" title="${escapeHtml(t.infoHash)}">${escapeHtml(shortHash)}</h3>
+        <h3 class="mono" title="${escapeHtml(t.infoHash)}">${escapeHtml(shortHash)}${torrentIdSuffix}</h3>
         <table class="summary">
           <tr><th>Peers in swarm</th><td>${t.peersInSwarm}</td></tr>
           <tr><th>Tracker seeders (complete)</th><td>${t.trackerSeeders}</td></tr>
@@ -333,6 +336,8 @@ class Server extends EventEmitter {
 
     // Seed status map: { [infoHash]: { [peerId]: { paused, progress, resumable } } }
     this._seedStatusMap = {}
+    // Map snapshot info_hash to torrent_id when provided by seeders source.
+    this._seedTorrentIdMap = {}
     this._seedStatusUpdatedAt = 0
     this._seedersUrl = ''
     this._seedPollIntervalMs = null
@@ -515,9 +520,13 @@ class Server extends EventEmitter {
         try {
           const records = JSON.parse(data)
           const map = {}
+          const torrentIdMap = {}
           if (Array.isArray(records)) {
             for (const r of records) {
               if (!r.info_hash || !r.peer_id) continue
+              if (r.torrent_id != null && r.torrent_id !== '') {
+                torrentIdMap[r.info_hash] = String(r.torrent_id)
+              }
               if (!map[r.info_hash]) map[r.info_hash] = {}
               map[r.info_hash][r.peer_id] = {
                 paused: !!r.paused,
@@ -527,6 +536,7 @@ class Server extends EventEmitter {
             }
           }
           this._seedStatusMap = map
+          this._seedTorrentIdMap = torrentIdMap
           this._seedStatusUpdatedAt = Date.now()
           debug('seeders poll: %d info_hashes', Object.keys(map).length)
         } catch (err) {
