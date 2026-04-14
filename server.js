@@ -92,8 +92,18 @@ function buildTorrentStats (server, infoHashes) {
   return out
 }
 
+function buildAnnounceStats (server) {
+  const ms = server.intervalMs
+  return {
+    intervalMs: ms,
+    websocketResponseIntervalSec: Math.ceil(ms / 1000 / 5),
+    httpUdpResponseIntervalSec: Math.ceil(ms / 1000)
+  }
+}
+
 function renderStatsHtml (stats, torrentDetails, server) {
   const sf = stats.seedFilter
+  const ann = stats.announce
   const ageMs = sf.snapshot.ageMs
   const ageStr = ageMs < 0 ? 'never' : `${Math.round(ageMs / 1000)}s ago`
   const poll = server._seedPollIntervalMs
@@ -188,6 +198,14 @@ function renderStatsHtml (stats, torrentDetails, server) {
   <h3>IPv6 Peers: ${stats.peersIPv6}</h3>
   <h2>Clients</h2>
   ${printClientsHtml(stats.clients)}
+  <h2>Announce interval</h2>
+  <div class="card">
+    <table>
+      <tr><th>Server option (<code>interval</code>)</th><td>${ann.intervalMs} ms — base interval used to compute suggested client announce periods</td></tr>
+      <tr><th>WebSocket <code>interval</code> field</th><td>${ann.websocketResponseIntervalSec} s — <code>ceil(intervalMs / 1000 / 5)</code>, shorter cadence for WebTorrent</td></tr>
+      <tr><th>HTTP / UDP <code>interval</code> field</th><td>${ann.httpUdpResponseIntervalSec} s — <code>ceil(intervalMs / 1000)</code></td></tr>
+    </table>
+  </div>
   <h2>Seed filter configuration</h2>
   <div class="card">
     <table>${configRows}</table>
@@ -471,6 +489,7 @@ class Server extends EventEmitter {
             peersIPv6: countPeers(isIPv6),
             clients: groupByClient(),
             torrentDetails,
+            announce: buildAnnounceStats(this),
             seedFilter: {
               enabled: !!this._seedFilterEnabled,
               progressMin: this._seedProgressMin,
