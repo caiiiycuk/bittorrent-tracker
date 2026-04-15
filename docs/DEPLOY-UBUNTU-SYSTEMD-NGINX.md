@@ -34,7 +34,7 @@ Confirm the binary path you will use in `ExecStart` (example with nvm):
 
 ## 2. systemd service
 
-Below is the unit you defined, kept as a single file (e.g. `/etc/systemd/system/bittorrent-tracker.service`). The `**Environment=**` lines for **seed filtering** turn on disabled-peer exclusion for WebSocket peer selection. Set `**SEED_FILTER_ENABLED=true`** and a valid `**DISABLED_SEEDERS_URL**` together; the tracker polls that URL and applies the filter only to **WebRTC/WebSocket** announces (HTTP/UDP lists are unchanged).
+Below is the unit you defined, kept as a single file (e.g. `/etc/systemd/system/bittorrent-tracker.service`). The `**Environment=**` lines for **seed filtering** turn on disabled-peer exclusion for WebSocket peer selection. Set `**SEED_FILTER_ENABLED=true`** and a valid `**DISABLED_SEEDERS_URL`** together; the tracker polls that URL and applies the filter only to **WebRTC/WebSocket** announces (HTTP/UDP lists are unchanged).
 
 ```ini
 [Unit]
@@ -65,7 +65,7 @@ WantedBy=multi-user.target
 | -------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `**SEED_FILTER_ENABLED**`  | Yes, to enable     | Must be the literal string `**true**`. Turns on filtering for WebSocket announces when a snapshot is available.                                                                                  |
 | `**DISABLED_SEEDERS_URL**` | Yes, for live data | HTTPS or HTTP URL the tracker **GET**s periodically (JSON map: `{ infoHash: { peers: peerId[], torrentId } }`). Without this URL, the tracker does **not** poll and filtering has no cloud data. |
-| `**SEEDERS_URL**`          | Optional fallback  | Backward-compatible alias for `**DISABLED_SEEDERS_URL**`. Prefer `**DISABLED_SEEDERS_URL**` for new deployments.                                                                                 |
+| `**SEEDERS_URL`**          | Optional fallback  | Backward-compatible alias for `**DISABLED_SEEDERS_URL`**. Prefer `**DISABLED_SEEDERS_URL**` for new deployments.                                                                                 |
 
 
 To **disable** seed filtering, remove the URL variable or set `Environment=SEED_FILTER_ENABLED=false`, and drop or comment `DISABLED_SEEDERS_URL` (or `SEEDERS_URL`) as needed. Reload after edits: `sudo systemctl daemon-reload && sudo systemctl restart bittorrent-tracker.service`.

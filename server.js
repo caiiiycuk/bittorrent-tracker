@@ -54,7 +54,6 @@ function buildTorrentStats (server, infoHashes) {
       } else httpUdpPeers++
     }
     const disabled = disabledMap[infoHash]
-    const cloudRecords = []
     let disabledCount = 0
     let disabledInSwarmCount = 0
     let disabledInWsSwarmCount = 0
@@ -65,10 +64,6 @@ function buildTorrentStats (server, infoHashes) {
         disabledCount++
         if (peerIdsInSwarm.has(peerId)) disabledInSwarmCount++
         if (wsPeerIdsInSwarm.has(peerId)) disabledInWsSwarmCount++
-        cloudRecords.push({
-          peerId,
-          registeredOnTracker: peerIdsInSwarm.has(peerId)
-        })
       }
     }
     const enabledInWsSwarmCount = Math.max(0, wsPeers - disabledInWsSwarmCount)
@@ -83,8 +78,7 @@ function buildTorrentStats (server, infoHashes) {
       disabledPeers: disabledInWsSwarmCount,
       enabledPeers: enabledInWsSwarmCount,
       cloudRecordsTotal: disabledCount,
-      cloudEligibleForFilter: disabledInSwarmCount,
-      cloudRecords
+      cloudEligibleForFilter: disabledInSwarmCount
     })
   }
   return out
@@ -117,28 +111,10 @@ function renderStatsHtml (stats, torrentDetails, server) {
     <tr><th>Info hashes in disabled snapshot</th><td>${sf.snapshot.infoHashCount}</td></tr>
   `
 
-  const maxCloudRows = 80
   let tables = ''
   for (let i = 0; i < torrentDetails.length; i++) {
     const t = torrentDetails[i]
     const torrentIdSuffix = t.torrentId ? ` (${escapeHtml(t.torrentId)})` : ''
-    const recs = t.cloudRecords
-    let sub
-    if (recs.length === 0) {
-      sub = '<p class="note">No disabled seed records for this info hash (snapshot may be empty or key missing).</p>'
-    } else {
-      const slice = recs.length > maxCloudRows ? recs.slice(0, maxCloudRows) : recs
-      sub = '<table class="sub"><thead><tr><th>Peer id (hex)</th><th>Registered on tracker</th></tr></thead><tbody>'
-      for (let j = 0; j < slice.length; j++) {
-        const r = slice[j]
-        const pid = r.peerId
-        sub += `<tr><td class="mono" title="${escapeHtml(r.peerId)}">${escapeHtml(pid)}</td><td>${r.registeredOnTracker ? 'yes' : 'no'}</td></tr>`
-      }
-      sub += '</tbody></table>'
-      if (recs.length > maxCloudRows) {
-        sub += `<p class="note">Showing ${maxCloudRows} of ${recs.length} disabled records for this info hash.</p>`
-      }
-    }
 
     tables += `
       <section class="card">
@@ -154,8 +130,6 @@ function renderStatsHtml (stats, torrentDetails, server) {
           <tr><th>Disabled peers (raw snapshot)</th><td>${t.cloudRecordsTotal}</td></tr>
           <tr><th>Disabled peers matching tracker peers</th><td>${t.cloudEligibleForFilter}</td></tr>
         </table>
-        <h4>Disabled seeders (from snapshot)</h4>
-        ${sub}
       </section>
     `
   }
@@ -182,7 +156,6 @@ function renderStatsHtml (stats, torrentDetails, server) {
     th, td { text-align: left; padding: 0.35rem 0.5rem; border-bottom: 1px solid #e5e7eb; }
     th { font-weight: 600; color: #374151; width: 14rem; vertical-align: top; }
     table.summary th { width: 18rem; }
-    table.sub th { width: auto; }
     .mono { font-family: ui-monospace, monospace; font-size: 0.82rem; word-break: break-all; }
     .note { color: #6b7280; font-size: 0.88rem; margin: 0.5rem 0 0; }
     ul { margin: 0.25rem 0 0; padding-left: 1.25rem; }
