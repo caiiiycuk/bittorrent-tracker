@@ -100,10 +100,10 @@ Example `**server**` block (paths and `server_name` match your earlier setup):
 ```nginx
 server {
     listen 8444 ssl;
-    server_name cloud.js-dos.com;
+    server_name cloud.dos.zone;
 
-    ssl_certificate     /etc/letsencrypt/live/cloud.js-dos.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/cloud.js-dos.com/privkey.pem;
+    ssl_certificate     /etc/letsencrypt/live/cloud.dos.zone/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/cloud.dos.zone/privkey.pem;
 
     location = / {
         limit_req zone=tracker_zone burst=50 nodelay;
@@ -205,9 +205,9 @@ sudo nginx -t && sudo systemctl reload nginx
 
 | Role             | Example (your host)                       |
 | ---------------- | ----------------------------------------- |
-| HTTPS announce   | `https://cloud.js-dos.com:8444/announce`  |
-| HTTPS scrape     | `https://cloud.js-dos.com:8444/scrape`    |
-| WSS (WebTorrent) | `wss://cloud.js-dos.com:8444/announce-ws` |
+| HTTPS announce   | `https://cloud.dos.zone:8444/announce`  |
+| HTTPS scrape     | `https://cloud.dos.zone:8444/scrape`    |
+| WSS (WebTorrent) | `wss://cloud.dos.zone:8444/announce-ws` |
 
 
 WebTorrent / browser clients must use the **WSS URL that matches this `location`**. If a client defaults to `wss://host/` or `wss://host/announce`, change the magnet or app config to `**/announce-ws**` (or add a separate `location` that matches what your client sends).
@@ -231,11 +231,11 @@ sudo ufw enable
 
 ## 5. Let’s Encrypt
 
-Use **certbot** with nginx or standalone to obtain `fullchain.pem` and `privkey.pem` for `cloud.js-dos.com`, then point `ssl_certificate` and `ssl_certificate_key` at those paths (as in your config).
+Use **certbot** with nginx or standalone to obtain `fullchain.pem` and `privkey.pem` for `cloud.dos.zone`, then point `ssl_certificate` and `ssl_certificate_key` at those paths (as in your config).
 
 ## 6. Verification
 
-- **Tracker up:** `curl -sS "https://cloud.js-dos.com:8444/stats" | head`
+- **Tracker up:** `curl -sS "https://cloud.dos.zone:8444/stats" | head`
 - **Announce (smoke):** use a BitTorrent client with `https://.../announce` or test with a minimal announce (respecting required query parameters).
 - **Logs:** `journalctl -u bittorrent-tracker -n 100 --no-pager`
 
