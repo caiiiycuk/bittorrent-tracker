@@ -37,6 +37,7 @@ function buildTorrentStats (server, infoHashes) {
     const keys = peers.keys
     const peerIdsInSwarm = new Set()
     const wsPeerIdsInSwarm = new Set()
+    const completePeerIdsInSwarm = new Set()
     let trackerSeeders = 0
     let trackerLeechers = 0
     let wsPeers = 0
@@ -46,7 +47,10 @@ function buildTorrentStats (server, infoHashes) {
       const peer = peers.peek(peerId)
       if (!peer) continue
       if (peer.peerId) peerIdsInSwarm.add(peer.peerId)
-      if (peer.complete) trackerSeeders++
+      if (peer.complete) {
+        trackerSeeders++
+        if (peer.peerId) completePeerIdsInSwarm.add(peer.peerId)
+      }
       else trackerLeechers++
       if (peer.type === 'ws') {
         wsPeers++
@@ -57,6 +61,7 @@ function buildTorrentStats (server, infoHashes) {
     let disabledCount = 0
     let disabledInSwarmCount = 0
     let disabledInWsSwarmCount = 0
+    let disabledCompleteInSwarmCount = 0
     if (disabled && Array.isArray(disabled.peers)) {
       const pids = disabled.peers
       for (let k = 0; k < pids.length; k++) {
@@ -64,14 +69,17 @@ function buildTorrentStats (server, infoHashes) {
         disabledCount++
         if (peerIdsInSwarm.has(peerId)) disabledInSwarmCount++
         if (wsPeerIdsInSwarm.has(peerId)) disabledInWsSwarmCount++
+        if (completePeerIdsInSwarm.has(peerId)) disabledCompleteInSwarmCount++
       }
     }
     const enabledInWsSwarmCount = Math.max(0, wsPeers - disabledInWsSwarmCount)
+    const trackerSeedersEnabled = Math.max(0, trackerSeeders - disabledCompleteInSwarmCount)
     out.push({
       infoHash,
       torrentId: disabledTorrentIdMap[infoHash] || '',
       peersInSwarm: keys.length,
       trackerSeeders,
+      trackerSeedersEnabled,
       trackerLeechers,
       wsPeers,
       httpUdpPeers,
@@ -122,6 +130,7 @@ function renderStatsHtml (stats, torrentDetails, server) {
         <table class="summary">
           <tr><th>Peers in swarm</th><td>${t.peersInSwarm}</td></tr>
           <tr><th>Tracker seeders (complete)</th><td>${t.trackerSeeders}</td></tr>
+          <tr><th>Tracker seeders (complete + enabled)</th><td>${t.trackerSeedersEnabled}</td></tr>
           <tr><th>Tracker leechers (incomplete)</th><td>${t.trackerLeechers}</td></tr>
           <tr><th>WebSocket peers</th><td>${t.wsPeers}</td></tr>
           <tr><th>HTTP / UDP peers</th><td>${t.httpUdpPeers}</td></tr>
