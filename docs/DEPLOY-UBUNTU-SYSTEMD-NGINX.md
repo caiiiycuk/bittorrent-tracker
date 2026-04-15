@@ -34,7 +34,7 @@ Confirm the binary path you will use in `ExecStart` (example with nvm):
 
 ## 2. systemd service
 
-Below is the unit you defined, kept as a single file (e.g. `/etc/systemd/system/bittorrent-tracker.service`). The `**Environment=**` lines for **seed filtering** turn on preferential WebSocket peer selection using your cloud snapshot (**paused** + **resumable** + **download progress**). Set `**SEED_FILTER_ENABLED=true`** and a valid `**SEEDERS_URL**` together; the tracker polls that URL and applies the filter only to **WebRTC/WebSocket** announces (HTTP/UDP lists are unchanged).
+Below is the unit you defined, kept as a single file (e.g. `/etc/systemd/system/bittorrent-tracker.service`). The `**Environment=**` lines for **seed filtering** turn on disabled-peer exclusion for WebSocket peer selection. Set `**SEED_FILTER_ENABLED=true`** and a valid `**DISABLED_SEEDERS_URL**` together; the tracker polls that URL and applies the filter only to **WebRTC/WebSocket** announces (HTTP/UDP lists are unchanged).
 
 ```ini
 [Unit]
@@ -50,8 +50,7 @@ Restart=always
 RestartSec=3
 Environment=NODE_ENV=production
 Environment=SEED_FILTER_ENABLED=true
-Environment=SEEDERS_URL=https://your-cloud.example/seeders
-Environment=SEED_PROGRESS_MIN=35
+Environment=DISABLED_SEEDERS_URL=https://your-cloud.example/disabled_seeders
 StandardOutput=journal
 StandardError=journal
 
@@ -62,14 +61,14 @@ WantedBy=multi-user.target
 ### Seed filter environment variables
 
 
-| Variable                  | Required           | Meaning                                                                                                                                                                                                         |
-| ------------------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `**SEED_FILTER_ENABLED**` | Yes, to enable     | Must be the literal string `**true**`. Turns on filtering for WebSocket announces when a snapshot is available.                                                                                                 |
-| `**SEEDERS_URL**`         | Yes, for live data | HTTPS or HTTP URL the tracker **GET**s periodically (JSON array of records with `info_hash`, `peer_id`, `paused`, `resumable`, `progress`). Without this URL, the tracker does **not** poll and filtering has no cloud data. |
-| `**SEED_PROGRESS_MIN`**   | No                 | Minimum **progress percent** for a peer to be preferred (default **35** if unset). Peers at or below this value (or `paused=true` with `resumable=false`) are deprioritized for WebSocket peer lists when the snapshot says so. |
+| Variable                   | Required           | Meaning                                                                                                                                                                                          |
+| -------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `**SEED_FILTER_ENABLED**`  | Yes, to enable     | Must be the literal string `**true**`. Turns on filtering for WebSocket announces when a snapshot is available.                                                                                  |
+| `**DISABLED_SEEDERS_URL**` | Yes, for live data | HTTPS or HTTP URL the tracker **GET**s periodically (JSON map: `{ infoHash: { peers: peerId[], torrentId } }`). Without this URL, the tracker does **not** poll and filtering has no cloud data. |
+| `**SEEDERS_URL**`          | Optional fallback  | Backward-compatible alias for `**DISABLED_SEEDERS_URL**`. Prefer `**DISABLED_SEEDERS_URL**` for new deployments.                                                                                 |
 
 
-To **disable** seed filtering, remove the three variables or set `Environment=SEED_FILTER_ENABLED=false`, and drop or comment `SEEDERS_URL` / `SEED_PROGRESS_MIN` as needed. Reload after edits: `sudo systemctl daemon-reload && sudo systemctl restart bittorrent-tracker.service`.
+To **disable** seed filtering, remove the URL variable or set `Environment=SEED_FILTER_ENABLED=false`, and drop or comment `DISABLED_SEEDERS_URL` (or `SEEDERS_URL`) as needed. Reload after edits: `sudo systemctl daemon-reload && sudo systemctl restart bittorrent-tracker.service`.
 
 ### Commands
 
@@ -85,7 +84,7 @@ journalctl -u bittorrent-tracker.service -f
 - `**--trust-proxy**` is required so the tracker trusts `X-Forwarded-For` / `X-Real-IP` from nginx and records correct client IPs for HTTP announces.
 - `**-p 123**` binds the **HTTP + WebSocket** listener on `123` (localhost-facing; nginx proxies to `127.0.0.1:123`). Pick a high, non-privileged port you are comfortable with.
 - `**--interval 180000`** sets the announce interval to **3 minutes** (milliseconds).
-- `**--no-udp6`**: the stock `bin/cmd.js` in this repository does **not** define this flag. If your installed package ignores unknown flags, UDP6 may still start. To disable **all** UDP (keep HTTP + WebSocket only), use `**--no-udp`**. To only disable IPv6 UDP, use the programmatic `Server` API or extend the CLI; verify with `ss -ulnp | grep node` after start.
+- `**--no-udp6`**: the stock `bin/cmd.js` in this repository does not define this flag. If your installed package ignores unknown flags, UDP6 may still start. To disable all UDP (keep HTTP + WebSocket only), use `**--no-udp`**. To only disable IPv6 UDP, use the programmatic `Server` API or extend the CLI; verify with `ss -ulnp | grep node` after start.
 - **Running as `root`**: acceptable only if you accept the risk; a dedicated `**User=**` and `**WorkingDirectory=**` under `/opt/bittorrent-tracker` or `/var/lib/bittorrent-tracker` is safer.
 
 ## 3. nginx (TLS + reverse proxy + WSS)
