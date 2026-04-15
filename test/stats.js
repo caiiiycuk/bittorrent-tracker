@@ -193,3 +193,56 @@ test('server: get leecher stats.json (unknown peerId)', t => {
     })
   })
 })
+
+test('server: stats include torrentId for each infoHash', t => {
+  t.plan(8)
+
+  commonTest.createServer(t, 'http', (server, announceUrl) => {
+    const infoHash = fixtures.leaves.parsedTorrent.infoHash
+    const torrentId = 'torrent-123'
+
+    const client = new Client({
+      infoHash,
+      announce: announceUrl,
+      peerId,
+      port: 6881
+    })
+    client.on('error', err => { t.error(err) })
+    client.on('warning', err => { t.error(err) })
+
+    client.start()
+
+    server.once('start', async () => {
+      server._disabledSeedersMap[infoHash] = {
+        peers: [],
+        peersSet: new Set(),
+        torrentId
+      }
+      server._disabledTorrentIdMap[infoHash] = torrentId
+
+      let jsonRes
+      let htmlRes
+      try {
+        jsonRes = await fetch(announceUrl.replace('/announce', '/stats.json'))
+        htmlRes = await fetch(announceUrl.replace('/announce', '/stats'))
+      } catch (err) {
+        t.error(err)
+      }
+
+      const stats = await jsonRes.json()
+      const html = await htmlRes.text()
+      const detail = stats.torrentDetails.find(x => x.infoHash === infoHash)
+
+      t.equal(jsonRes.status, 200)
+      t.ok(detail, 'torrent details should include infoHash entry')
+      t.equal(detail.infoHash, infoHash, 'infoHash should match torrent details entry')
+      t.equal(detail.torrentId, torrentId, 'torrentId should be present in stats.json')
+      t.equal(htmlRes.status, 200)
+      t.ok(html.includes(infoHash), 'stats html should include infoHash')
+      t.ok(html.includes(`(${torrentId})`), 'stats html should include torrentId near infoHash')
+
+      client.destroy(() => { t.pass('client destroyed') })
+      server.close(() => {})
+    })
+  })
+})
