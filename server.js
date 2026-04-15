@@ -483,6 +483,9 @@ class Server extends EventEmitter {
           }
 
           if (req.url === '/stats.json' || req.headers.accept === 'application/json') {
+            if (req.url === '/stats.json') {
+              res.setHeader('Access-Control-Allow-Origin', '*')
+            }
             res.setHeader('Content-Type', 'application/json')
             res.end(JSON.stringify(stats))
           } else if (req.url === '/stats') {
