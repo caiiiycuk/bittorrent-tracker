@@ -69,6 +69,7 @@ function buildTorrentStats (server, infoHashes) {
           peerId,
           registeredOnTracker: peerIdsInSwarm.has(peerId),
           paused: !!st.paused,
+          mobile: !!st.mobile,
           resumable: !!st.resumable,
           progress: st.progress,
           eligibleForWebRtcFilter: eligible
@@ -130,11 +131,11 @@ function renderStatsHtml (stats, torrentDetails, server) {
       sub = '<p class="note">No cloud seed records for this info hash (snapshot may be empty or key missing).</p>'
     } else {
       const slice = recs.length > maxCloudRows ? recs.slice(0, maxCloudRows) : recs
-      sub = '<table class="sub"><thead><tr><th>Peer id (hex)</th><th>Registered on tracker</th><th>Progress</th><th>Paused</th><th>Resumable</th></tr></thead><tbody>'
+      sub = '<table class="sub"><thead><tr><th>Peer id (hex)</th><th>Registered on tracker</th><th>Progress</th><th>Paused</th><th>Mobile</th><th>Resumable</th></tr></thead><tbody>'
       for (let j = 0; j < slice.length; j++) {
         const r = slice[j]
         const pid = r.peerId
-        sub += `<tr><td class="mono" title="${escapeHtml(r.peerId)}">${escapeHtml(pid)}</td><td>${r.registeredOnTracker ? 'yes' : 'no'}</td><td>${r.progress}%</td><td>${r.paused ? 'yes' : 'no'}</td><td>${r.resumable ? 'yes' : 'no'}</td></tr>`
+        sub += `<tr><td class="mono" title="${escapeHtml(r.peerId)}">${escapeHtml(pid)}</td><td>${r.registeredOnTracker ? 'yes' : 'no'}</td><td>${r.progress}%</td><td>${r.paused ? 'yes' : 'no'}</td><td>${r.mobile ? 'yes' : 'no'}</td><td>${r.resumable ? 'yes' : 'no'}</td></tr>`
       }
       sub += '</tbody></table>'
       if (recs.length > maxCloudRows) {
@@ -354,7 +355,7 @@ class Server extends EventEmitter {
       })
     }
 
-    // Seed status map: { [infoHash]: { [peerId]: { paused, progress, resumable } } }
+    // Seed status map: { [infoHash]: { [peerId]: { paused, mobile, progress, resumable } } }
     this._seedStatusMap = {}
     // Map snapshot info_hash to torrent_id when provided by seeders source.
     this._seedTorrentIdMap = {}
@@ -551,6 +552,7 @@ class Server extends EventEmitter {
               if (!map[r.info_hash]) map[r.info_hash] = {}
               map[r.info_hash][r.peer_id] = {
                 paused: !!r.paused,
+                mobile: !!r.mobile,
                 resumable: !!r.resumable,
                 progress: Number(r.progress) || 0
               }
