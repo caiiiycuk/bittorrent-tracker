@@ -28,16 +28,12 @@ function escapeHtml (text) {
 }
 
 function buildTorrentStats (server, infoHashes) {
-  const disabledMap = server._disabledSeedersMap || {}
-  const disabledTorrentIdMap = server._disabledTorrentIdMap || {}
+  const torrentNamesMap = server._torrentNamesMap || {}
   const out = []
   for (let i = 0; i < infoHashes.length; i++) {
     const infoHash = infoHashes[i]
     const peers = server.torrents[infoHash].peers
     const keys = peers.keys
-    const peerIdsInSwarm = new Set()
-    const wsPeerIdsInSwarm = new Set()
-    const completePeerIdsInSwarm = new Set()
     let trackerSeeders = 0
     let trackerLeechers = 0
     let wsPeers = 0
@@ -46,47 +42,21 @@ function buildTorrentStats (server, infoHashes) {
       const peerId = keys[j]
       const peer = peers.peek(peerId)
       if (!peer) continue
-      if (peer.peerId) peerIdsInSwarm.add(peer.peerId)
-      if (peer.complete) {
-        trackerSeeders++
-        if (peer.peerId) completePeerIdsInSwarm.add(peer.peerId)
-      }
+      if (peer.complete) trackerSeeders++
       else trackerLeechers++
       if (peer.type === 'ws') {
         wsPeers++
-        if (peer.peerId) wsPeerIdsInSwarm.add(peer.peerId)
       } else httpUdpPeers++
     }
-    const disabled = disabledMap[infoHash]
-    let disabledCount = 0
-    let disabledInSwarmCount = 0
-    let disabledInWsSwarmCount = 0
-    let disabledCompleteInSwarmCount = 0
-    if (disabled && Array.isArray(disabled.peers)) {
-      const pids = disabled.peers
-      for (let k = 0; k < pids.length; k++) {
-        const peerId = pids[k]
-        disabledCount++
-        if (peerIdsInSwarm.has(peerId)) disabledInSwarmCount++
-        if (wsPeerIdsInSwarm.has(peerId)) disabledInWsSwarmCount++
-        if (completePeerIdsInSwarm.has(peerId)) disabledCompleteInSwarmCount++
-      }
-    }
-    const enabledInWsSwarmCount = Math.max(0, wsPeers - disabledInWsSwarmCount)
-    const trackerSeedersEnabled = Math.max(0, trackerSeeders - disabledCompleteInSwarmCount)
+    const torrentName = torrentNamesMap[infoHash] || ''
     out.push({
       infoHash,
-      torrentId: disabledTorrentIdMap[infoHash] || '',
+      torrentName,
       peersInSwarm: keys.length,
       trackerSeeders,
-      trackerSeedersEnabled,
       trackerLeechers,
       wsPeers,
-      httpUdpPeers,
-      disabledPeers: disabledInWsSwarmCount,
-      enabledPeers: enabledInWsSwarmCount,
-      cloudRecordsTotal: disabledCount,
-      cloudEligibleForFilter: disabledInSwarmCount
+      httpUdpPeers
     })
   }
   return out
@@ -102,42 +72,34 @@ function buildAnnounceStats (server) {
 }
 
 function renderStatsHtml (stats, torrentDetails, server) {
-  const sf = stats.seedFilter
   const ann = stats.announce
-  const ageMs = sf.snapshot.ageMs
+  const names = stats.torrentNames
+  const ageMs = names.snapshotAgeMs
   const ageStr = ageMs < 0 ? 'never' : `${Math.round(ageMs / 1000)}s ago`
-  const poll = server._seedPollIntervalMs
-  const urlConfigured = !!server._seedersUrl
+  const poll = server._torrentNamesPollIntervalMs
+  const namesUrl = names.sourceUrl || ''
 
   const configRows = `
-    <tr><th>Seed filter enabled</th><td>${sf.enabled ? 'yes' : 'no'}</td></tr>
-    <tr><th>Filter behavior</th><td>Original peer selection, but skip peers listed in disabled map for WebSocket / WebRTC announces</td></tr>
-    <tr><th>Filter scope</th><td>WebSocket / WebRTC announces only (HTTP and UDP peer lists are unchanged)</td></tr>
-    <tr><th>Disabled seeders URL</th><td>${urlConfigured ? 'configured' : 'not configured'}</td></tr>
-    <tr><th>Snapshot poll interval</th><td>${poll != null ? `${poll} ms` : '—'}</td></tr>
-    <tr><th>Disabled snapshot age</th><td>${escapeHtml(ageStr)}</td></tr>
-    <tr><th>Info hashes in disabled snapshot</th><td>${sf.snapshot.infoHashCount}</td></tr>
+    <tr><th>Torrent names source URL</th><td class="mono">${namesUrl ? escapeHtml(namesUrl) : 'not configured'}</td></tr>
+    <tr><th>Torrent names poll interval</th><td>${poll != null ? `${poll} ms` : '—'}</td></tr>
+    <tr><th>Last names snapshot update</th><td>${escapeHtml(ageStr)}</td></tr>
+    <tr><th>Info hashes in names snapshot</th><td>${names.infoHashes}</td></tr>
   `
 
   let tables = ''
   for (let i = 0; i < torrentDetails.length; i++) {
     const t = torrentDetails[i]
-    const torrentIdSuffix = t.torrentId ? ` (${escapeHtml(t.torrentId)})` : ''
+    const torrentNameSuffix = t.torrentName ? ` (${escapeHtml(t.torrentName)})` : ''
 
     tables += `
       <section class="card">
-        <h3 class="mono" title="${escapeHtml(t.infoHash)}">${escapeHtml(t.infoHash)}${torrentIdSuffix}</h3>
+        <h3 class="mono" title="${escapeHtml(t.infoHash)}">${escapeHtml(t.infoHash)}${torrentNameSuffix}</h3>
         <table class="summary">
           <tr><th>Peers in swarm</th><td>${t.peersInSwarm}</td></tr>
           <tr><th>Tracker seeders (complete)</th><td>${t.trackerSeeders}</td></tr>
-          <tr><th>Tracker seeders (complete + enabled)</th><td>${t.trackerSeedersEnabled}</td></tr>
           <tr><th>Tracker leechers (incomplete)</th><td>${t.trackerLeechers}</td></tr>
           <tr><th>WebSocket peers</th><td>${t.wsPeers}</td></tr>
           <tr><th>HTTP / UDP peers</th><td>${t.httpUdpPeers}</td></tr>
-          <tr><th>Disabled peers (WebRTC in swarm)</th><td>${t.disabledPeers}</td></tr>
-          <tr><th>Enabled peers (WebRTC in swarm)</th><td>${t.enabledPeers}</td></tr>
-          <tr><th>Disabled peers (raw snapshot)</th><td>${t.cloudRecordsTotal}</td></tr>
-          <tr><th>Disabled peers matching tracker peers</th><td>${t.cloudEligibleForFilter}</td></tr>
         </table>
       </section>
     `
@@ -188,11 +150,11 @@ function renderStatsHtml (stats, torrentDetails, server) {
       <tr><th>HTTP / UDP <code>interval</code> field</th><td>${ann.httpUdpResponseIntervalSec} s — <code>ceil(intervalMs / 1000)</code></td></tr>
     </table>
   </div>
-  <h2>Seed filter configuration</h2>
+  <h2>Torrent names snapshot</h2>
   <div class="card">
     <table>${configRows}</table>
   </div>
-  <h2>Swarms and disabled seeders (per info hash)</h2>
+  <h2>Swarms (per info hash)</h2>
   ${tables}
   <p class="note"><a href="/stats.json">JSON API</a> — same data as machine-readable JSON.</p>
 </body>
@@ -229,6 +191,8 @@ function printClientsHtml (clients) {
  * @param {boolean|Object} opts.udp     start a udp server?, or extra options for dgram.createSocket (default: true)
  * @param {boolean|Object} opts.ws      start a websocket server?, or extra options for new WebSocketServer (default: true)
  * @param {boolean} opts.stats          enable web-based statistics? (default: true)
+ * @param {string} opts.torrentNamesUrl URL returning JSON object of { [infoHash]: torrentName }
+ * @param {number} opts.torrentNamesPollInterval poll interval for torrent names snapshot (ms)
  * @param {function} opts.filter        black/whitelist fn for disallowing/allowing torrents
  */
 class Server extends EventEmitter {
@@ -336,28 +300,18 @@ class Server extends EventEmitter {
       })
     }
 
-    // Disabled seeders map: { [infoHash]: { peers: string[], peersSet: Set<string>, torrentId: string } }
-    this._disabledSeedersMap = {}
-    // Map snapshot infoHash to torrentId when provided by disabled seeders source.
-    this._disabledTorrentIdMap = {}
-    this._seedStatusUpdatedAt = 0
-    this._seedersUrl = ''
-    this._seedPollIntervalMs = null
-
-    const seedFilterEnabled = opts.seedFilterEnabled !== undefined
-      ? opts.seedFilterEnabled
-      : process.env.SEED_FILTER_ENABLED === 'true'
-    this._seedFilterEnabled = seedFilterEnabled
-    const seedersUrl = opts.disabledSeedersUrl || opts.seedersUrl || process.env.DISABLED_SEEDERS_URL || process.env.SEEDERS_URL || ''
-    if (seedersUrl && seedFilterEnabled) {
-      this._seedersUrl = seedersUrl
-      const pollInterval = opts.seedPollInterval || 2000
-      this._seedPollIntervalMs = pollInterval
-      this._seedPollTimer = setInterval(() => {
-        this._pollSeeders()
-      }, pollInterval)
-      this._pollSeeders()
-    }
+    this._torrentNamesMap = {}
+    this._torrentNamesUpdatedAt = 0
+    this._torrentNamesUrl = opts.torrentNamesUrl ||
+      process.env.TORRENT_NAMES_URL ||
+      'https://s3.ru1.storage.beget.cloud/68bbc47d0de7-doszone-archive/hashes.json'
+    this._torrentNamesPollIntervalMs = opts.torrentNamesPollInterval ||
+      toNumber(process.env.TORRENT_NAMES_POLL_INTERVAL_MS) ||
+      5 * 60 * 1000
+    this._torrentNamesPollTimer = setInterval(() => {
+      this._pollTorrentNames()
+    }, this._torrentNamesPollIntervalMs)
+    this._pollTorrentNames()
 
     if (opts.stats !== false) {
       if (!this.http) {
@@ -451,9 +405,9 @@ class Server extends EventEmitter {
           const isIPv4 = peer => peer.ipv4
           const isIPv6 = peer => peer.ipv6
 
-          const seedStatusInfoHashes = Object.keys(this._disabledSeedersMap || {}).length
-          const seedStatusAge = this._seedStatusUpdatedAt
-            ? Date.now() - this._seedStatusUpdatedAt
+          const namesInfoHashes = Object.keys(this._torrentNamesMap || {}).length
+          const namesAge = this._torrentNamesUpdatedAt
+            ? Date.now() - this._torrentNamesUpdatedAt
             : -1
 
           const torrentDetails = buildTorrentStats(this, infoHashes)
@@ -470,15 +424,10 @@ class Server extends EventEmitter {
             clients: groupByClient(),
             torrentDetails,
             announce: buildAnnounceStats(this),
-            seedFilter: {
-              enabled: !!this._seedFilterEnabled,
-              appliesToWebRtcAnnouncesOnly: true,
-              infoHashes: seedStatusInfoHashes,
-              snapshotAgeMs: seedStatusAge,
-              snapshot: {
-                infoHashCount: seedStatusInfoHashes,
-                ageMs: seedStatusAge
-              }
+            torrentNames: {
+              sourceUrl: this._torrentNamesUrl,
+              infoHashes: namesInfoHashes,
+              snapshotAgeMs: namesAge
             }
           }
 
@@ -512,53 +461,37 @@ class Server extends EventEmitter {
     this.emit('error', err)
   }
 
-  _pollSeeders () {
-    if (!this._seedersUrl) return
-    const url = this._seedersUrl
+  _pollTorrentNames () {
+    if (!this._torrentNamesUrl) return
+    const url = this._torrentNamesUrl
     const getter = url.startsWith('https') ? https : http
     const req = getter.get(url, (res) => {
       let data = ''
       res.on('data', chunk => { data += chunk })
       res.on('end', () => {
         try {
-          const records = JSON.parse(data)
+          const rawMap = JSON.parse(data)
           const map = {}
-          const torrentIdMap = {}
-
-          if (records && typeof records === 'object' && !Array.isArray(records)) {
-            const infoHashes = Object.keys(records)
+          if (rawMap && typeof rawMap === 'object' && !Array.isArray(rawMap)) {
+            const infoHashes = Object.keys(rawMap)
             for (let i = 0; i < infoHashes.length; i++) {
               const infoHash = infoHashes[i]
-              const entry = records[infoHash]
-              if (!entry || typeof entry !== 'object') continue
-
-              const peers = Array.isArray(entry.peers)
-                ? entry.peers.filter(peerId => typeof peerId === 'string' && peerId.length > 0)
-                : []
-
-              const peersSet = new Set(peers)
-              const torrentId = entry.torrentId != null && entry.torrentId !== ''
-                ? String(entry.torrentId)
-                : ''
-
-              map[infoHash] = { peers, peersSet, torrentId }
-              if (torrentId) {
-                torrentIdMap[infoHash] = torrentId
-              }
+              const value = rawMap[infoHash]
+              if (typeof value !== 'string' || value.length === 0) continue
+              map[infoHash] = value
             }
           }
 
-          this._disabledSeedersMap = map
-          this._disabledTorrentIdMap = torrentIdMap
-          this._seedStatusUpdatedAt = Date.now()
-          debug('disabled seeders poll: %d info_hashes', Object.keys(map).length)
+          this._torrentNamesMap = map
+          this._torrentNamesUpdatedAt = Date.now()
+          debug('torrent names poll: %d info_hashes', Object.keys(map).length)
         } catch (err) {
-          debug('disabled seeders poll parse error: %s', err.message)
+          debug('torrent names poll parse error: %s', err.message)
         }
       })
     })
     req.on('error', (err) => {
-      debug('disabled seeders poll request error: %s', err.message)
+      debug('torrent names poll request error: %s', err.message)
     })
     req.setTimeout(5000, () => {
       req.destroy()
@@ -597,9 +530,9 @@ class Server extends EventEmitter {
     this.listening = false
     this.destroyed = true
 
-    if (this._seedPollTimer) {
-      clearInterval(this._seedPollTimer)
-      this._seedPollTimer = null
+    if (this._torrentNamesPollTimer) {
+      clearInterval(this._torrentNamesPollTimer)
+      this._torrentNamesPollTimer = null
     }
 
     if (this.udp4) {

@@ -42,6 +42,12 @@ Also see [bittorrent-dht](https://www.npmjs.com/package/bittorrent-dht).
 
 ![Screenshot](img/trackerStats.png)
 
+Extended stats include per-torrent rows with active peer breakdown and (when available)
+a human-readable name from an `infoHash -> name` snapshot.
+By default, the server polls:
+`https://s3.ru1.storage.beget.cloud/68bbc47d0de7-doszone-archive/hashes.json`
+and uses that mapping in `/stats` and `/stats.json`.
+
 ## install
 
 ```

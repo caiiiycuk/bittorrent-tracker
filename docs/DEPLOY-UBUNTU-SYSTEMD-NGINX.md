@@ -34,7 +34,7 @@ Confirm the binary path you will use in `ExecStart` (example with nvm):
 
 ## 2. systemd service
 
-Below is the unit you defined, kept as a single file (e.g. `/etc/systemd/system/bittorrent-tracker.service`). The `**Environment=**` lines for **seed filtering** turn on disabled-peer exclusion for WebSocket peer selection. Set `**SEED_FILTER_ENABLED=true`** and a valid `**DISABLED_SEEDERS_URL`** together; the tracker polls that URL and applies the filter only to **WebRTC/WebSocket** announces (HTTP/UDP lists are unchanged).
+Below is the unit you defined, kept as a single file (e.g. `/etc/systemd/system/bittorrent-tracker.service`). The `**Environment=**` line for torrent names controls where `/stats` and `/stats.json` fetch the `infoHash -> name` mapping used by the extended stats table.
 
 ```ini
 [Unit]
@@ -49,8 +49,7 @@ ExecStart=/root/.nvm/versions/node/v24.14.0/bin/node /root/.nvm/versions/node/v2
 Restart=always
 RestartSec=3
 Environment=NODE_ENV=production
-Environment=SEED_FILTER_ENABLED=true
-Environment=DISABLED_SEEDERS_URL=https://your-cloud.example/disabled_seeders
+Environment=TORRENT_NAMES_URL=https://s3.ru1.storage.beget.cloud/68bbc47d0de7-doszone-archive/hashes.json
 StandardOutput=journal
 StandardError=journal
 
@@ -58,17 +57,18 @@ StandardError=journal
 WantedBy=multi-user.target
 ```
 
-### Seed filter environment variables
+### Extended stats environment variables
 
 
 | Variable                   | Required           | Meaning                                                                                                                                                                                          |
 | -------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `**SEED_FILTER_ENABLED**`  | Yes, to enable     | Must be the literal string `**true**`. Turns on filtering for WebSocket announces when a snapshot is available.                                                                                  |
-| `**DISABLED_SEEDERS_URL**` | Yes, for live data | HTTPS or HTTP URL the tracker **GET**s periodically (JSON map: `{ infoHash: { peers: peerId[], torrentId } }`). Without this URL, the tracker does **not** poll and filtering has no cloud data. |
-| `**SEEDERS_URL`**          | Optional fallback  | Backward-compatible alias for `**DISABLED_SEEDERS_URL`**. Prefer `**DISABLED_SEEDERS_URL**` for new deployments.                                                                                 |
+| `**TORRENT_NAMES_URL**`          | Optional           | HTTPS or HTTP URL for JSON map `{ infoHash: "torrents/file.torrent" }`. The tracker polls this snapshot periodically and shows the mapped name next to each `infoHash` in extended stats.         |
+| `**TORRENT_NAMES_POLL_INTERVAL_MS**` | Optional           | Poll interval in milliseconds for refreshing the names snapshot. By default, the tracker refreshes every 5 minutes.                                                                              |
 
 
-To **disable** seed filtering, remove the URL variable or set `Environment=SEED_FILTER_ENABLED=false`, and drop or comment `DISABLED_SEEDERS_URL` (or `SEEDERS_URL`) as needed. Reload after edits: `sudo systemctl daemon-reload && sudo systemctl restart bittorrent-tracker.service`.
+If you omit `**TORRENT_NAMES_URL**`, the tracker uses the built-in default URL:
+`https://s3.ru1.storage.beget.cloud/68bbc47d0de7-doszone-archive/hashes.json`.
+Reload after edits: `sudo systemctl daemon-reload && sudo systemctl restart bittorrent-tracker.service`.
 
 ### Commands
 
