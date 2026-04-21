@@ -59,6 +59,10 @@ function buildTorrentStats (server, infoHashes) {
       httpUdpPeers
     })
   }
+  out.sort((a, b) => {
+    if (b.peersInSwarm !== a.peersInSwarm) return b.peersInSwarm - a.peersInSwarm
+    return a.infoHash.localeCompare(b.infoHash)
+  })
   return out
 }
 
